@@ -1,44 +1,41 @@
-# Linux Telemetry Agent (SRE Portfolio)
+# SRE Native Linux Monitoring Agent (Bash)
 
-[![Orchestration: Docker Compose](https://img.shields.io/badge/Orchestration-Docker%20Compose-blue?logo=docker&logoColor=white)](https://docs.docker.com/)
-[![Metrics Exporter: Node Exporter](https://img.shields.io/badge/Metrics-Node%20Exporter-orange?logo=prometheus&logoColor=white)](https://github.com/prometheus/node_exporter)
-[![Target OS: Linux](https://img.shields.io/badge/Target%20OS-Linux-green?logo=linux&logoColor=white)](https://www.kernel.org/)
+[![Observability: Native ProcFS](https://img.shields.io/badge/Observability-Native%20ProcFS-blue?logo=linux&logoColor=white)](https://www.kernel.org/)
+[![Daemon: Systemd Service](https://img.shields.io/badge/Daemon-Systemd%20Service-green?logo=systemd&logoColor=white)](https://systemd.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-orange.svg)](LICENSE)
 
-A production-ready Linux telemetry exporter deployment script built with **Docker Compose** and **Node Exporter**. Designed to collect, expose, and serve low-level system metrics from a target Linux host on port `9100` to be scraped by centralized monitoring platforms (like Prometheus & Grafana).
+A production-grade, zero-dependency **Native Linux Observability Agent** written entirely in pure Bash. It collects host hardware metrics (CPU, RAM, Disk, Load, Network, Processes) directly by parsing the kernel's `/proc` virtual filesystem, and installs as a background daemon (systemd service) with automated log rotation.
 
 ---
 
 ## 💼 Business Case & Problem Statement
 
 ### The Problem
-Monitoring production clusters requires collecting telemetry from dozens of separate Linux target servers. Running full Prometheus databases and Grafana servers on every target host:
-- **Wastes Host Resources**: Consumes CPU, RAM, and disk storage that should be allocated to core business applications.
-- **Fragments Visibility**: Forces operators to visit separate URLs rather than viewing metrics in a centralized dashboard.
-- **Creates Setup Inefficiencies**: Manual telemetry agent setups introduce configuration drift and inconsistency across host groups.
+Deploying heavy third-party monitoring agents (like Node Exporter, Datadog, or Telegraf) on high-density production Linux servers introduces operational issues:
+- **Resource Overhead**: Telemetry containers/agents eat CPU cycles and RAM that should be reserved for application workloads.
+- **Dependency Bloat**: Managing packaging dependencies, runtime engines (like Docker), or security patches for agents creates setup friction.
+- **Infinite Logs**: Agents writing logs to text files will eventually exhaust disk space if log rotation is not explicitly configured.
 
 ### The Solution
-This project deploys a lightweight, standalone host metrics exporter:
-- **Minimal Footprint**: Deploys only Node Exporter, using less than 15MB of RAM, leaving the host system resources untouched.
-- **Standardized Exposure**: Automatically exposes raw system metrics on port `9100/metrics` in a standard format ready for scraping.
-- **Zero Config Drift**: Declared as Infrastructure-as-Code via Docker Compose for easy deployment across Ubuntu/Debian server groups.
+This project deploys a lightweight, zero-dependency monitoring script:
+- **No External Agents**: Directly parses kernel `/proc` metrics (consuming < 1% CPU and < 2MB RAM).
+- **Systemd Daemon Integration**: Runs as a standard background system daemon (`linux-monitor.service`) to collect JSON telemetry.
+- **Safe Log Rotation**: Sets up automated policies (`logrotate`) to rotate metrics history, ensuring the host never runs out of disk space.
 
 ---
 
-## 🏗️ Architecture & Telemetry Pipeline
+## 🏗️ Technical Architecture & Telemetry Flow
 
 ```mermaid
 flowchart TD
-    subgraph "Linux Server (Host Target Node)"
-        A["Linux Kernel /proc, /sys"] -->|Exposes hardware stats| B["Node Exporter Container (Port 9100)"]
-    end
-    
-    subgraph "Centralized Monitoring (Separate Cluster)"
-        C[("Central Prometheus TSDB")] -->|Pulls metrics (HTTP GET /metrics)| B
-        D["Central Grafana Dashboard"] -->|Queries PromQL| C
+    subgraph "Linux Target Host"
+        A["Kernel Virtual Filesystem (/proc, /sys)"] -->|Raw kernel metrics| B["linux-monitor Agent Script (/usr/local/bin)"]
+        B -->|Option --loop| C["ANSI Terminal Console Dashboard"]
+        B -->|Option --log| D["JSON Telemetry Log (/var/log/linux-monitor.log)"]
+        E["Systemd Daemon (linux-monitor.service)"] -->|Orchestrates background loop| B
+        F["Logrotate Policy (/etc/logrotate.d)"] -->|Rotates & Compresses daily| D
     end
 ```
-
-*Data Flow: Linux Host Node Kernel -> Node Exporter (HTTP Port 9100) -> Central Prometheus Scraper -> Central Grafana Visualizer.*
 
 ---
 
@@ -46,63 +43,87 @@ flowchart TD
 
 ```text
 .
-├── docker-compose.yml              # Container orchestration for Node Exporter agent
 ├── architecture_diagram.png        # Telemetry pipeline architecture diagram
 ├── README.md                       # Core documentation
 ├── LICENSE                         # MIT License
 └── scripts/
-    └── deploy.sh                   # Ubuntu auto-installer and launch script
+    ├── monitor.sh                  # Custom Bash agent parsing /proc statistics
+    └── deploy.sh                   # Systemd service and logrotate installer script
 ```
 
 ---
 
-## 🚀 Deployment Guide (Ubuntu/Debian Target)
+## 🚀 Installation & Service Deployment (Ubuntu/Debian)
 
-### Run Deployment Script
-On Ubuntu or Debian, the deployment script automatically installs Docker, Docker Compose, curl, and stress tools if they are missing, then launches Node Exporter:
+Run the deployment script with `sudo` to register the script as a daemon and configure logs:
 
 ```bash
 # Clone the repository and navigate inside
 cd /opt/linux-sre
 
-# Make script executable
-chmod +x scripts/deploy.sh
+# Make scripts executable
+chmod +x scripts/*.sh
 
-# Run with sudo to enable auto-installation of Docker if missing
+# Run the installer as root
 sudo ./scripts/deploy.sh
 ```
 
-*Note: For other Linux distributions, pre-install Docker and Docker Compose, then execute `./scripts/deploy.sh`.*
+---
+
+## 🔧 Script Command-Line Options
+
+You can execute the agent manually (`/usr/local/bin/linux-monitor`) with the following flags:
+
+*   `--loop`: Runs in a loop, updating a colorful console dashboard every 3 seconds (ideal for live diagnostics).
+*   `--once`: Collects metrics once and prints them in a structured dashboard layout.
+*   `--json`: Outputs current metrics in structured JSON format to stdout.
+*   `--log <file>`: Appends a structured JSON metrics entry to the target file.
 
 ---
 
-## 🔍 Verification & Testing
+## 🔍 Verification & SRE Telemetry Checks
 
-1. **Verify Metrics Exposure**: Query the metrics endpoint from your terminal or browser:
+1. **Verify Background Service**:
+   Check if the systemd monitoring service is successfully running:
    ```bash
-   curl http://localhost:9100/metrics
+   systemctl status linux-monitor
    ```
-   You should see a clean response listing all metrics starting with `node_` (e.g. `node_cpu_seconds_total`, `node_memory_MemFree_bytes`).
 
-2. **Simulate Alerting Load**: Run a stress test on your host server to verify that the metrics reflect real-time workload changes:
+2. **Verify JSON Metrics Log**:
+   Check the output log where the daemon records performance statistics:
    ```bash
-   sudo apt install -y stress
-   stress --cpu 4 --timeout 300
+   tail -f /var/log/linux-monitor.log
+   ```
+   *Expected Output Format:*
+   ```json
+   {
+     "timestamp": "2026-07-19T12:00:00Z",
+     "hostname": "ubuntu-server",
+     "uptime": "2d 4h 12m",
+     "metrics": {
+       "cpu_usage_percent": 12.45,
+       "load_average": { "1m": 0.15, "5m": 0.22, "15m": 0.10 },
+       "process_count": 142,
+       "memory": { "total_mb": 4096, "used_mb": 1204, "usage_percent": 29.39 },
+       "disk": { "total_gb": 40.2, "used_gb": 12.4, "usage_percent": 30.84 }
+     }
+   }
+   ```
+
+3. **Verify Log Rotation Policy**:
+   Test if logrotate parses our configuration without errors:
+   ```bash
+   sudo logrotate -d /etc/logrotate.d/linux-monitor
    ```
 
 ---
 
-## 📊 Core PromQL Metrics Exposed
+## 📊 Kernel Metrics Parsing Reference
 
-These are the primary metrics exposed by this agent to be queried by Prometheus:
-
-- **CPU Core Idle Rate**:
-  `rate(node_cpu_seconds_total{mode="idle"}[2m])` (Collects idle cpu cycles per core)
-- **Active Memory**:
-  `node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes` (Real host RAM usage)
-- **Filesystem Free Capacity (Bytes)**:
-  `node_filesystem_free_bytes{fstype=~"ext4|xfs"}`
-- **Ingress Network Traffic (Bytes/sec)**:
-  `rate(node_network_receive_bytes_total{device!~"lo|docker.*|veth.*"}[2m])`
-- **Disk IO Read Time Rate**:
-  `rate(node_disk_read_time_seconds_total[2m])`
+This script reads raw kernel states directly from files:
+- **CPU**: `/proc/stat` (Calculates active CPU cycles over 1 second).
+- **RAM**: `/proc/meminfo` (Parses `MemTotal`, `MemFree`, and `MemAvailable`).
+- **Load Averages**: `/proc/loadavg` (Reads kernel scheduler queues).
+- **Uptime**: `/proc/uptime` (Converts system boot seconds to printable durations).
+- **Processes**: `/proc/[0-9]*` (Counts numerical PIDs inside the process mount).
+- **Network**: `/proc/net/dev` (Tracks primary device packet rates).
