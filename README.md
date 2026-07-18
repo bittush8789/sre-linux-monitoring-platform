@@ -59,7 +59,8 @@ Run the deployment script with `sudo` to register the script as a daemon and con
 
 ```bash
 # Clone the repository and navigate inside
-cd /opt/linux-sre
+git clone https://github.com/bittush8789/sre-linux-monitoring-platform.git
+cd sre-linux-monitoring-platform
 
 # Make scripts executable
 chmod +x scripts/*.sh
