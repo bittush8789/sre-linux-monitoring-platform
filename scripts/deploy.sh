@@ -88,24 +88,12 @@ else
     success "Found Compose command: '$COMPOSE_CMD'"
 fi
 
-# 3. Prometheus Configuration Validation using Promtool
-info "Validating Prometheus configurations before startup..."
-# We run promtool inside a transient docker container overriding entrypoint and mapping configurations
-if ! docker run --rm \
-    --entrypoint /bin/promtool \
-    -v "$PROJECT_ROOT/prometheus:/etc/prometheus" \
-    prom/prometheus:v2.45.0 \
-    check config /etc/prometheus/prometheus.yml; then
-    error "Prometheus configuration check failed! Please review syntax errors in prometheus.yml or alerts.yml."
-fi
-success "Prometheus configurations are valid."
-
-# 4. Starting the Stack
-info "Launching the Monitoring Platform stack..."
+# 3. Starting the Agent Stack
+info "Launching the Node Exporter metrics agent..."
 $COMPOSE_CMD -f "$PROJECT_ROOT/docker-compose.yml" --project-directory "$PROJECT_ROOT" up -d
 
-# 5. Post-deployment Health and Readiness Checks
-info "Waiting for service endpoints to become ready..."
+# 4. Post-deployment Health and Readiness Checks
+info "Waiting for Node Exporter to become ready..."
 
 check_endpoint() {
     local name=$1
@@ -114,7 +102,8 @@ check_endpoint() {
     local wait_sec=5
     
     for ((i=1; i<=retries; i++)); do
-        if curl -s -o /dev/null -w "%{http_code}" "$url" | grep -E "200|302" &> /dev/null; then
+        # Node Exporter returns 200 OK on its main endpoint
+        if curl -s -o /dev/null -w "%{http_code}" "$url" | grep -E "200" &> /dev/null; then
             success "$name is reachable and running!"
             return 0
         fi
@@ -124,19 +113,15 @@ check_endpoint() {
     error "$name failed to start or is unreachable on $url after $((retries * wait_sec)) seconds."
 }
 
-# Check Prometheus
-check_endpoint "Prometheus Time-Series Database" "http://localhost:9090/-/ready"
-
-# Check Grafana
-check_endpoint "Grafana Dashboard Portal" "http://localhost:3000/api/health"
+# Check Node Exporter
+check_endpoint "Node Exporter Telemetry Agent" "http://localhost:9100/metrics"
 
 success "=========================================================="
-success " Linux Monitoring Platform Deployed Successfully!         "
+success " Linux Telemetry Agent Deployed Successfully!            "
 success "=========================================================="
-info "Access URLs:"
-info " - Prometheus Dashboard : http://localhost:9090"
-info " - Grafana Dashboard    : http://localhost:3000"
-info "                          (Default Credentials: admin / admin)"
+info "Metrics URL:"
+info " - Node Exporter Endpoint : http://localhost:9100/metrics"
 info ""
-info "To inspect active logs, run: '$COMPOSE_CMD logs -f'"
-info "To tear down the stack, run: '$COMPOSE_CMD down -v'"
+info "To inspect active logs, run: '$COMPOSE_CMD -f $PROJECT_ROOT/docker-compose.yml --project-directory $PROJECT_ROOT logs -f'"
+info "To tear down the agent, run: '$COMPOSE_CMD -f $PROJECT_ROOT/docker-compose.yml --project-directory $PROJECT_ROOT down'"
+

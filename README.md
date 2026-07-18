@@ -1,34 +1,44 @@
-# Linux Monitoring & Telemetry Platform (SRE Portfolio)
+# Linux Telemetry Agent (SRE Portfolio)
 
 [![Orchestration: Docker Compose](https://img.shields.io/badge/Orchestration-Docker%20Compose-blue?logo=docker&logoColor=white)](https://docs.docker.com/)
-[![Metrics: Prometheus](https://img.shields.io/badge/Metrics-Prometheus-orange?logo=prometheus&logoColor=white)](https://prometheus.io/)
-[![Visualization: Grafana](https://img.shields.io/badge/Visualization-Grafana-orange?logo=grafana&logoColor=white)](https://grafana.com/)
+[![Metrics Exporter: Node Exporter](https://img.shields.io/badge/Metrics-Node%20Exporter-orange?logo=prometheus&logoColor=white)](https://github.com/prometheus/node_exporter)
+[![Target OS: Linux](https://img.shields.io/badge/Target%20OS-Linux-green?logo=linux&logoColor=white)](https://www.kernel.org/)
 
-A production-ready Linux Monitoring Platform built with **Docker Compose**, **Prometheus**, **Node Exporter**, and **Grafana** to collect, store, and visualize host telemetry in real-time.
+A production-ready Linux telemetry exporter deployment script built with **Docker Compose** and **Node Exporter**. Designed to collect, expose, and serve low-level system metrics from a target Linux host on port `9100` to be scraped by centralized monitoring platforms (like Prometheus & Grafana).
 
 ---
 
 ## 💼 Business Case & Problem Statement
 
 ### The Problem
-Modern enterprise systems suffer from sudden outages, high **MTTR (Mean Time to Resolution)**, and bloated cloud budgets due to zero infrastructure visibility:
-- **Silent Resource Exhaustion**: CPU, RAM, or Disk runs out quietly, causing business-critical services to crash.
-- **Manual Troubleshooting**: Operations teams waste time logging into individual servers via SSH to run CLI diagnostics (`top`, `df`).
-- **No Capacity Planning**: Lack of historic telemetry leads to server over-provisioning (wasted budget) or under-provisioning.
+Monitoring production clusters requires collecting telemetry from dozens of separate Linux target servers. Running full Prometheus databases and Grafana servers on every target host:
+- **Wastes Host Resources**: Consumes CPU, RAM, and disk storage that should be allocated to core business applications.
+- **Fragments Visibility**: Forces operators to visit separate URLs rather than viewing metrics in a centralized dashboard.
+- **Creates Setup Inefficiencies**: Manual telemetry agent setups introduce configuration drift and inconsistency across host groups.
 
 ### The Solution
-This platform automates infrastructure observability to improve reliability and reduce downtime:
-- **Proactive Alerts**: Evaluates thresholds and triggers warnings (e.g. predicting disk exhaustion 24 hours in advance using PromQL).
-- **Centralized Telemetry**: Correlates all system performance metrics into a single, dynamic Grafana dashboard.
-- **Zero Configuration Drift**: Standardized as Infrastructure-as-Code via Docker Compose for deterministic, click-free deployments.
+This project deploys a lightweight, standalone host metrics exporter:
+- **Minimal Footprint**: Deploys only Node Exporter, using less than 15MB of RAM, leaving the host system resources untouched.
+- **Standardized Exposure**: Automatically exposes raw system metrics on port `9100/metrics` in a standard format ready for scraping.
+- **Zero Config Drift**: Declared as Infrastructure-as-Code via Docker Compose for easy deployment across Ubuntu/Debian server groups.
 
 ---
 
-## 🏗️ Architecture & Data Flow
+## 🏗️ Architecture & Telemetry Pipeline
 
-![SRE Telemetry Architecture](architecture_diagram.png)
+```mermaid
+flowchart TD
+    subgraph "Linux Server (Host Target Node)"
+        A["Linux Kernel /proc, /sys"] -->|Exposes hardware stats| B["Node Exporter Container (Port 9100)"]
+    end
+    
+    subgraph "Centralized Monitoring (Separate Cluster)"
+        C[("Central Prometheus TSDB")] -->|Pulls metrics (HTTP GET /metrics)| B
+        D["Central Grafana Dashboard"] -->|Queries PromQL| C
+    end
+```
 
-*Data Flow: Linux Host Kernel -> Node Exporter (HTTP Pull) -> Prometheus TSDB -> Grafana UI Dashboard.*
+*Data Flow: Linux Host Node Kernel -> Node Exporter (HTTP Port 9100) -> Central Prometheus Scraper -> Central Grafana Visualizer.*
 
 ---
 
@@ -36,28 +46,20 @@ This platform automates infrastructure observability to improve reliability and 
 
 ```text
 .
-├── docker-compose.yml              # Container stack orchestration definition
+├── docker-compose.yml              # Container orchestration for Node Exporter agent
 ├── architecture_diagram.png        # Telemetry pipeline architecture diagram
 ├── README.md                       # Core documentation
-├── prometheus/
-│   ├── prometheus.yml              # Prometheus scraping configuration
-│   └── alerts.yml                  # Alerting rules (CPU, Memory, Disk, Net)
-├── grafana/
-│   ├── provisioning/               # Auto-import configurations
-│   │   ├── datasources/datasource.yml
-│   │   └── dashboards/dashboard.yml
-│   └── dashboards/
-│       └── linux_dashboard.json    # Complete 9-panel Grafana dashboard
+├── LICENSE                         # MIT License
 └── scripts/
     └── deploy.sh                   # Ubuntu auto-installer and launch script
 ```
 
 ---
 
-## 🚀 Deployment Guide (Ubuntu/Debian)
+## 🚀 Deployment Guide (Ubuntu/Debian Target)
 
 ### Run Deployment Script
-On Ubuntu or Debian, the deployment script automatically installs Docker, Docker Compose, curl, and stress tools if they are missing, validates config files, and launches the stack:
+On Ubuntu or Debian, the deployment script automatically installs Docker, Docker Compose, curl, and stress tools if they are missing, then launches Node Exporter:
 
 ```bash
 # Clone the repository and navigate inside
@@ -70,15 +72,19 @@ chmod +x scripts/deploy.sh
 sudo ./scripts/deploy.sh
 ```
 
-*Note: For other OS targets, pre-install Docker and Docker Compose v2, then run `./scripts/deploy.sh`.*
+*Note: For other Linux distributions, pre-install Docker and Docker Compose, then execute `./scripts/deploy.sh`.*
 
 ---
 
 ## 🔍 Verification & Testing
 
-1. **Verify Prometheus Targets**: Go to `http://<server-ip>:9090/targets` to verify both `prometheus` and `node-exporter` show as `UP`.
-2. **Access Grafana Dashboard**: Go to `http://<server-ip>:3000` (User: `admin` / Password: `admin`) and open the **Linux SRE Performance & Telemetry Dashboard**.
-3. **Simulate Alerting Load**: Run a stress test on your host server to verify warning thresholds trigger:
+1. **Verify Metrics Exposure**: Query the metrics endpoint from your terminal or browser:
+   ```bash
+   curl http://localhost:9100/metrics
+   ```
+   You should see a clean response listing all metrics starting with `node_` (e.g. `node_cpu_seconds_total`, `node_memory_MemFree_bytes`).
+
+2. **Simulate Alerting Load**: Run a stress test on your host server to verify that the metrics reflect real-time workload changes:
    ```bash
    sudo apt install -y stress
    stress --cpu 4 --timeout 300
@@ -86,17 +92,17 @@ sudo ./scripts/deploy.sh
 
 ---
 
-## 📊 PromQL Cheat Sheet (SRE Golden Signals)
+## 📊 Core PromQL Metrics Exposed
 
-Primary metrics formulas used inside our dashboard configurations:
+These are the primary metrics exposed by this agent to be queried by Prometheus:
 
-- **CPU Utilization %**:
-  `100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)`
-- **Available RAM %**:
-  `(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100`
-- **Root Disk Space Usage %**:
-  `100 - (node_filesystem_avail_bytes{mountpoint="/"}/node_filesystem_size_bytes{mountpoint="/"}) * 100`
-- **Network Traffic (Bytes/sec)**:
+- **CPU Core Idle Rate**:
+  `rate(node_cpu_seconds_total{mode="idle"}[2m])` (Collects idle cpu cycles per core)
+- **Active Memory**:
+  `node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes` (Real host RAM usage)
+- **Filesystem Free Capacity (Bytes)**:
+  `node_filesystem_free_bytes{fstype=~"ext4|xfs"}`
+- **Ingress Network Traffic (Bytes/sec)**:
   `rate(node_network_receive_bytes_total{device!~"lo|docker.*|veth.*"}[2m])`
-- **Disk Write Latency (ms)**:
-  `rate(node_disk_write_time_seconds_total[5m]) / rate(node_disk_writes_completed_total[5m]) * 1000`
+- **Disk IO Read Time Rate**:
+  `rate(node_disk_read_time_seconds_total[2m])`
