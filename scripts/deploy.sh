@@ -5,6 +5,10 @@
 
 set -euo pipefail
 
+# Determine directory paths relative to script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
 # Text formatting helper functions
 info() { echo -e "\e[34m[INFO]\e[0m $*"; }
 success() { echo -e "\e[32m[SUCCESS]\e[0m $*"; }
@@ -86,18 +90,19 @@ fi
 
 # 3. Prometheus Configuration Validation using Promtool
 info "Validating Prometheus configurations before startup..."
-# We run promtool inside a transient docker container mapping our prometheus configs
+# We run promtool inside a transient docker container overriding entrypoint and mapping configurations
 if ! docker run --rm \
-    -v "$(pwd)/prometheus:/etc/prometheus" \
+    --entrypoint /bin/promtool \
+    -v "$PROJECT_ROOT/prometheus:/etc/prometheus" \
     prom/prometheus:v2.45.0 \
-    promtool check config /etc/prometheus/prometheus.yml; then
+    check config /etc/prometheus/prometheus.yml; then
     error "Prometheus configuration check failed! Please review syntax errors in prometheus.yml or alerts.yml."
 fi
 success "Prometheus configurations are valid."
 
 # 4. Starting the Stack
 info "Launching the Monitoring Platform stack..."
-$COMPOSE_CMD up -d
+$COMPOSE_CMD -f "$PROJECT_ROOT/docker-compose.yml" --project-directory "$PROJECT_ROOT" up -d
 
 # 5. Post-deployment Health and Readiness Checks
 info "Waiting for service endpoints to become ready..."
