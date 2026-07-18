@@ -1,0 +1,6 @@
+
+# Ignore system directories & local cache files
+.idea/
+.vscode/
+data/
+*.log
