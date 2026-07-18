@@ -40,7 +40,7 @@ flowchart TD
     end
     
     subgraph "Docker Containerized Monitoring Stack"
-        B -->|Pull metric scrape (15s interval)| C[("Prometheus TSDB (Port 9090)")]
+        B -->|Pull metric scrape (15s interval)| C[(Prometheus TSDB Port 9090)]
         C -->|Evaluates alerting rules| D["SRE Alerting Rules (alerts.yml)"]
         E["Grafana Dashboard (Port 3000)"] -->|Query PromQL| C
     end
