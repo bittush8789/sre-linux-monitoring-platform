@@ -1,0 +1,71 @@
+# Docker Compose configuration for the SRE Linux Monitoring Platform
+# Deploys Prometheus, Grafana, and Node Exporter with persistent storage and host metric access.
+
+version: '3.8'
+
+services:
+  # 1. Node Exporter: Collects Linux hardware and OS metrics exposed by the kernel.
+  # To measure the actual host server, it runs in the host network and PID namespaces.
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave # Mounts host root filesystem read-only to read system statistics
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)`'
+    deploy:
+      resources:
+        limits:
+          memory: 128M # Standard resource constraint for telemetry agents
+
+  # 2. Prometheus: Time-series database that pulls metrics from targets at defined intervals.
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d' # Set data retention period to 15 days (SRE standard)
+      - '--web.enable-lifecycle'             # Allows configuration hot-reloading via HTTP POST
+    extra_hosts:
+      # Allows Prometheus container to scrape the host-network Node Exporter via a standard alias
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - node-exporter
+
+  # 3. Grafana: Visualizations, analytics, and operational dashboard portal.
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Default credential for setup (Change in production!)
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
