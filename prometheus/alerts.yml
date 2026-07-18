@@ -1,0 +1,68 @@
+# Prometheus Alerting Rules
+# Implements SRE monitoring threshold alerts and predictive warnings for Linux instances.
+
+groups:
+  - name: LinuxHostAlerts
+    rules:
+      # 1. Host Availability Alert
+      - alert: HostDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host down (instance {{ $labels.instance }})"
+          description: "Node Exporter has been unreachable for more than 2 minutes. The target system might be offline or the exporter agent crashed."
+
+      # 2. CPU Saturation Alert
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host high CPU load (instance {{ $labels.instance }})"
+          description: "CPU usage is high (>85%) for more than 5 minutes. Current value: {{ $value | printf \"%.2f\" }}%"
+
+      # 3. Memory Saturation Alert
+      # Formula: (Total - Available) / Total * 100
+      - alert: HostOutOfMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host out of memory (instance {{ $labels.instance }})"
+          description: "Memory usage is extremely high (>90%) for more than 5 minutes. Available RAM is dangerously low. Current value: {{ $value | printf \"%.2f\" }}%"
+
+      # 4. Disk Space Critical Alert
+      # Checks root or data partitions (ext4 or xfs)
+      - alert: HostDiskOutOfSpace
+        expr: (node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Host disk out of space (instance {{ $labels.instance }})"
+          description: "Disk volume is running out of space (less than 10% remaining). Mountpoint: {{ $labels.mountpoint }}. Current free space: {{ $value | printf \"%.2f\" }}%"
+
+      # 5. SRE Proactive Alert: Disk Space Filling Up (Predictive)
+      # Predicts if the disk will run out of space within 24 hours based on the last 4 hours of usage trends
+      - alert: HostDiskWillFillIn24Hours
+        expr: predict_linear(node_filesystem_free_bytes{fstype=~"ext4|xfs"}[4h], 86400) < 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host disk filling up fast (instance {{ $labels.instance }})"
+          description: "Based on the recent 4-hour write trend, disk volume on {{ $labels.mountpoint }} is projected to fill up completely within the next 24 hours. Immediate investigation recommended."
+
+      # 6. Network Interface Saturation/Errors Alert
+      - alert: HostNetworkReceiveErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host network receive errors (instance {{ $labels.instance }})"
+          description: "Network interface {{ $labels.device }} is experiencing a high rate of receive errors (>5/sec) over the last 2 minutes."
